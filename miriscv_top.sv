@@ -7,8 +7,11 @@ module miriscv_top
 )
 (
   // clock, reset
-  input clk_i,
-  input rst_n_i
+  input         clk_i,
+  input         rst_n_i,
+  input  [31:0] int_req_i,
+  output [31:0] int_fin_o,
+  output        core_prog_finished
 );
 
   logic  [31:0]  instr_rdata_core;
@@ -37,6 +40,12 @@ module miriscv_top
   assign data_be_ram      =  data_be_core;
   assign data_addr_ram    =  data_addr_core;
   assign data_wdata_ram   =  data_wdata_core;
+  
+  logic [31:0] mie;
+  logic INT_RST;
+  logic [31:0] mcause;
+  logic INT_wire;
+
 
   miriscv_core core (
     .clk_i   ( clk_i   ),
@@ -50,7 +59,13 @@ module miriscv_top
     .data_we_o     ( data_we_core     ),
     .data_be_o     ( data_be_core     ),
     .data_addr_o   ( data_addr_core   ),
-    .data_wdata_o  ( data_wdata_core  )
+    .data_wdata_o  ( data_wdata_core  ),
+    
+    .mcause_i      (mcause),
+    .mie_o         (mie),
+    .int_i         (INT_wire),
+    .int_rst_o     (INT_RST),
+    .prog_finished (core_prog_finished)
   );
 
   miriscv_ram
@@ -71,6 +86,18 @@ module miriscv_top
     .data_addr_i   ( data_addr_ram   ),
     .data_wdata_i  ( data_wdata_ram  )
   );
+
+  interrupt_controller int_cntl (
+    .clk_i      (clk_i),
+    .arstn_i    (rst_n_i),
+    .mie_i      (mie),
+    .int_req    (int_req_i),
+    .INT_RST    (INT_RST),
+    .mcause_o   (mcause),
+    .INT_o      (INT_wire),
+    .int_fin    (int_fin_o)
+  );  
+  
 
 
 endmodule

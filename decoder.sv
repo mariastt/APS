@@ -3,7 +3,7 @@
 `include "./defines_riscv.v"
 
 module decoder(
-  input       [31:0]  fetched_instr_i,
+  input       [31:0]    fetched_instr_i,
   output  logic [1:0]   ex_op_a_sel_o,      // выходы сделаны регистрами,
   output  logic [2:0]   ex_op_b_sel_o,      // потому что всё устройство 
   output  logic [4:0]   alu_op_o,           // будет комбинационной схемой
@@ -15,7 +15,15 @@ module decoder(
   output  logic         illegal_instr_o,    // превратится в
   output  logic         branch_o,           // комбинационно устройство
   output  logic         jal_o,              // без памяти
-  output  logic         jalr_o              // 
+  output  logic [1:0]   jalr_o,             // 
+  
+  output  logic         csr_o,              // данные в RF с ALU(0) или с СSR(1)
+  input                 int_i,
+  output  logic         int_rst_o,
+  output  logic [2:0]   CSRop_o,
+  
+  output  logic       en_pc,
+  input               stall
     );
 
 logic [6:0] func7;
@@ -28,7 +36,28 @@ always @ * begin
     2'b11: illegal_instr_o = 1'b0;
     default: illegal_instr_o = 1'b1;
   endcase
-
+  
+  if(int_i)
+    begin
+        jalr_o <= 2'd3;
+        CSRop_o <= 3'b100;
+        csr_o <= 1;
+        mem_we_o <= 1'b0;
+        en_pc <= 0;
+        
+        wb_src_sel_o <= 0;
+        ex_op_a_sel_o <= 2'b00;
+        ex_op_b_sel_o <= 3'b000;
+        mem_req_o <= 0;
+        mem_size_o <= 0;
+        gpr_we_a_o <= 0;
+        illegal_instr_o <= 0;
+        branch_o <= 0;
+        jal_o <= 0;
+        int_rst_o <= 1'b0;
+    end
+else begin
+  en_pc <= stall;
   case (fetched_instr_i[6:2])
     `OP_OPCODE:       begin
                         gpr_we_a_o = 1'b1;
@@ -40,7 +69,8 @@ always @ * begin
                         wb_src_sel_o = `WB_EX_RESULT; // результат с алу
                         branch_o = 1'b0; 
                         jal_o = 1'b0;  
-                        jalr_o = 1'b0; 
+                        jalr_o = 2'b0; 
+                        csr_o <= 1'b0;
 //                        alu_op_o = alu_op;
                         case (func7)
                           7'h0:     case (func3)
@@ -75,7 +105,8 @@ always @ * begin
                         wb_src_sel_o = `WB_EX_RESULT; // результат с алу
                         branch_o = 1'b0; 
                         jal_o = 1'b0; 
-                        jalr_o = 1'b0; 
+                        jalr_o = 2'b0; 
+                        csr_o <= 1'b0;
                         case (func3)
                           3'h0: alu_op_o = `ALU_ADD;
                           3'h4: alu_op_o = `ALU_XOR;
@@ -110,7 +141,8 @@ always @ * begin
                         wb_src_sel_o = `WB_EX_RESULT; // результат с алу
                         branch_o = 1'b0;
                         jal_o = 1'b0; 
-                        jalr_o = 1'b0;
+                        jalr_o = 2'b0;
+                        csr_o <= 1'b0;
                       end
                       
     `LOAD_OPCODE:     begin
@@ -124,7 +156,8 @@ always @ * begin
                         wb_src_sel_o = `WB_LSU_DATA; // результат с алу
                         branch_o = 1'b0; 
                         jal_o = 1'b0;
-                        jalr_o = 1'b0; 
+                        jalr_o = 2'b0; 
+                        csr_o <= 1'b0;
                         case (func3)
                           3'h0: mem_size_o = `LDST_B;
                           3'h1: mem_size_o = `LDST_H;
@@ -146,7 +179,8 @@ always @ * begin
                         wb_src_sel_o = 1'b0;        // неважно
                         branch_o = 1'b0; 
                         jal_o = 1'b0; 
-                        jalr_o = 1'b0;
+                        jalr_o = 2'b0;
+                        csr_o <= 1'b0;
                         case (func3)
                           3'h0: mem_size_o = `LDST_B;
                           3'h1: mem_size_o = `LDST_H;
@@ -166,7 +200,8 @@ always @ * begin
                         wb_src_sel_o = 1'b0;        // неважно
 //                        branch_o = branch; 
                         jal_o = 1'b0; 
-                        jalr_o = 1'b0; 
+                        jalr_o = 2'b0; 
+                        csr_o <= 1'b0;
                         case (func3)
                           3'h0: begin
                                   alu_op_o = `ALU_EQ;
@@ -207,7 +242,8 @@ always @ * begin
                         wb_src_sel_o = `WB_EX_RESULT; // результат с алу
                         branch_o = 1'b0; 
                         jal_o = 1'b1; 
-                        jalr_o = 1'b0; 
+                        jalr_o = 2'b0;
+                        csr_o <= 1'b0; 
                       end   
     
     `JALR_OPCODE:     begin
@@ -221,9 +257,9 @@ always @ * begin
                         wb_src_sel_o = `WB_EX_RESULT; // результат с алу
                         branch_o = 1'b0;
                         jal_o = 1'b0; 
-//                        jalr_o = jalr; 
+                        csr_o <= 1'b0;
                         case (func3)
-                          3'h0: jalr_o = 1'b1;
+                          3'h0: jalr_o = 2'd1;
                           default: illegal_instr_o = 1'b1;
                         endcase
                       end
@@ -239,7 +275,8 @@ always @ * begin
                         wb_src_sel_o = `WB_EX_RESULT; // результат с алу
                         branch_o = 1'b0;              // неважно
                         jal_o = 1'b0;                 // неважно 
-                        jalr_o = 1'b0; 
+                        jalr_o = 2'b0; 
+                        csr_o <= 1'b0;
                       end
     
     `MISC_MEM_OPCODE: begin
@@ -253,12 +290,13 @@ always @ * begin
                         wb_src_sel_o = `WB_EX_RESULT; // результат с алу
                         branch_o = 1'b0; 
                         jal_o = 1'b0; 
-                        jalr_o = 1'b0; 
+                        jalr_o = 2'b0; 
+                        csr_o <= 1'b0;
                         illegal_instr_o = !(fetched_instr_i[1] & fetched_instr_i[0]);
                       end
     
     `SYSTEM_OPCODE:   begin
-                        gpr_we_a_o = 1'b0;
+                        
                         alu_op_o = `ALU_ADD;
                         ex_op_a_sel_o = `OP_A_RS1;
                         ex_op_b_sel_o = `OP_B_IMM_I;
@@ -268,12 +306,70 @@ always @ * begin
                         wb_src_sel_o = `WB_EX_RESULT; // результат с алу
                         branch_o = 1'b0;
                         jal_o = 1'b0; 
-                        jalr_o = 1'b0; 
+                        jalr_o = 2'b0; 
                         illegal_instr_o = !(fetched_instr_i[1] & fetched_instr_i[0]);
+                        case (func3)
+                        // mret
+                          3'h0: begin        
+                                  int_rst_o <= 1'b1;
+                                  jalr_o <= 2'd2;
+                                  gpr_we_a_o = 1'b0;
+                                  csr_o <= 1'b0;
+                                end
+                        // csrrw      
+                          3'h1: begin
+                                  csr_o <= 1'b1;             // WD from RF = RD from CSR
+                                  gpr_we_a_o <= 1'b1;        // WE for RF
+                                  CSRop_o <= 2'd1;
+                                  jalr_o <= 2'd0;
+                                  int_rst_o <= 1'b0;
+                                end   
+                        // csrrs            
+                          3'h2: begin
+                                  csr_o <= 1'b1;             // WD from RF = RD from CSR
+                                  gpr_we_a_o <= 1'b1;        // WE for RF
+                                  CSRop_o <= 2'd3;
+                                  jalr_o <= 2'd0;
+                                  int_rst_o <= 1'b0;
+                                end 
+                        // csrrc        
+                          3'h3: begin
+                                  csr_o <= 1'b1;             // WD from RF = RD from CSR
+                                  gpr_we_a_o <= 1'b1;        // WE for RF
+                                  CSRop_o <= 2'd2;
+                                  jalr_o <= 2'd0;
+                                  int_rst_o <= 1'b0;
+                                end 
+                          default begin 
+                                    illegal_instr_o = 1'b1;
+                                    jalr_o <= 0;
+                                    csr_o <= 0;
+                                    wb_src_sel_o <= 0;
+                                    ex_op_a_sel_o <= 2'b00;
+                                    ex_op_b_sel_o <= 0;
+                                    alu_op_o <= 0;
+                                    mem_req_o <= 0;
+                                    mem_we_o <= 0;
+                                    mem_size_o <= 0;
+                                    gpr_we_a_o <= 0;
+                                    branch_o <= 0;
+                                    jal_o <= 0;
+                                    CSRop_o <= 0;  
+                                    int_rst_o <= 0;
+                                  end
+                        endcase
                       end
                       
     default: illegal_instr_o = 1'b1;
+
   endcase
+  end
+  
+  if (int_i) begin
+      jalr_o <= 2'd3;
+      CSRop_o[2] <= 1'b1;
+    end
+  
 end    
     
 endmodule
